@@ -21,7 +21,10 @@ actor Main is TestList
     test(_TestFileEOF)
     test(_TestFileOpenError)
     test(_TestFileCreate)
+    test(_TestFileCreateNotWriteable)
     test(_TestFileOpen)
+    test(_TestFileOpenPermissionDenied)
+    test(_TestFileOpenWrite)
     test(_TestFileLongLine)
     test(_TestFileWrite)
     test(_TestFileWritev)
@@ -287,19 +290,6 @@ class iso _TestFileEOF is UnitTest
     end
 
 
-class iso _TestFileOpenError is UnitTest
-  fun name(): String => "files/File.open-error"
-  fun apply(h: TestHelper) =>
-    try
-      let path = "tmp.openerror"
-      let filepath = FilePath(h.env.root as AmbientAuth, path)?
-      let file = OpenFile(filepath)
-      h.assert_true(file is FileError)
-    else
-      h.fail("Unhandled error!")
-    end
-
-
 class iso _TestFileCreate is UnitTest
   fun name(): String => "files/File.create"
   fun apply(h: TestHelper) =>
@@ -319,6 +309,37 @@ class iso _TestFileCreate is UnitTest
     end
 
 
+class iso _TestFileCreateNotWriteable is UnitTest
+  fun name(): String => "files/File.create-not-writeable"
+  fun apply(h: TestHelper) =>
+    try
+      let content = "unwriteable"
+      let path = "tmp.create-not-writeable"
+      let filepath = FilePath(h.env.root as AmbientAuth, path)?
+      let mode: FileMode ref = FileMode.>private()
+      mode.owner_read = true
+      mode.owner_write = false
+
+      // preparing the non-writable, but readable file
+      with file = CreateFile(filepath) as File do
+        file.print(content)
+        h.assert_true(file.chmod(mode))
+      end
+
+      with file2 = File(filepath) do
+        h.assert_false(file2.valid())
+        h.assert_is[FileErrNo](file2.errno(), FilePermissionDenied)
+
+        let line = file2.line()?
+        h.fail("read on invalid file succeeded")
+      end
+      filepath.remove()
+    else
+      h.fail("Unhandled error!")
+    end
+
+// TODO: create on non-existing file without create caps
+
 class iso _TestFileOpen is UnitTest
   fun name(): String => "files/File.open"
   fun apply(h: TestHelper) =>
@@ -331,6 +352,74 @@ class iso _TestFileOpen is UnitTest
       with file2 = OpenFile(filepath) as File do
         let line1 = file2.line()?
         h.assert_eq[String]("foobar", consume line1)
+        h.assert_true(file2.valid())
+        h.assert_false(file2.writeable)
+      else
+        h.fail("Failed read on opened file!")
+      end
+      filepath.remove()
+    else
+      h.fail("Unhandled error!")
+    end
+
+
+class iso _TestFileOpenError is UnitTest
+  fun name(): String => "files/File.open-error"
+  fun apply(h: TestHelper) =>
+    try
+      let path = "tmp.openerror"
+      let filepath = FilePath(h.env.root as AmbientAuth, path)?
+      h.assert_false(filepath.exists())
+      let file = OpenFile(filepath)
+      h.assert_true(file is FileError)
+    else
+      h.fail("Unhandled error!")
+    end
+
+
+class iso _TestFileOpenPermissionDenied is UnitTest
+  fun name(): String => "files/File.open-permission-denied"
+  fun apply(h: TestHelper) =>
+    try
+      let filepath = FilePath(h.env.root as AmbientAuth, "tmp.open-not-readable")?
+      with file = CreateFile(filepath) as File do
+        file.print("unreadable")
+      end
+      let mode: FileMode ref = FileMode.>private()
+      mode.owner_read = false
+      mode.owner_write = false
+      h.assert_true(filepath.chmod(mode))
+      with opened = File.open(filepath) do
+        h.assert_is[FileErrNo](FilePermissionDenied, opened.errno())
+        h.assert_false(opened.valid())
+        h.assert_false(opened.writeable)
+        let read = opened.read(10)
+        h.assert_eq[USize](read.size(), 0)
+        h.assert_false(opened.write("oh, noes!"))
+      end
+      mode.owner_read = true
+      mode.owner_write = true
+      filepath.chmod(mode)
+      filepath.remove()
+    else
+      h.fail("Unhandled error!")
+    end
+
+class _TestFileOpenWrite is UnitTest
+  fun name(): String => "files/File.open.write"
+  fun apply(h: TestHelper) =>
+    try
+      let path = "tmp.open-write"
+      let filepath = FilePath(h.env.root as AmbientAuth, path)?
+      with file = CreateFile(filepath) as File do
+        file.print("write on file opened read-only")
+      end
+      h.assert_true(filepath.exists())
+      with opened = File.open(filepath) do
+        h.assert_is[FileErrNo](FileOK, opened.errno())
+        h.assert_true(opened.valid(), "read-only file not marked as valid")
+        h.assert_false(opened.writeable)
+        h.assert_false(opened.write("oh, noes!"))
       end
       filepath.remove()
     else

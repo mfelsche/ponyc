@@ -129,6 +129,7 @@ class File
       end
 
       if _fd == -1 then
+        @printf[None]("error opening".cstring())
         _errno = _get_error()
       else
         try
@@ -166,7 +167,7 @@ class File
       end
 
       if _fd == -1 then
-        _errno = FileError
+        _errno = _get_error()
       else
         try
           _FileDes.set_rights(_fd, path, writeable)?
@@ -221,7 +222,7 @@ class File
     """
     Returns true if the file is currently open.
     """
-    not _fd == -1
+    not (_fd == -1)
 
   fun ref line(): String iso^ ? =>
     """
