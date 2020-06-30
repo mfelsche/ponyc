@@ -349,6 +349,14 @@ DECLARE_THREAD_FN(ponyint_asio_backend_dispatch)
 
   close(b->epfd);
   close(b->wakeup);
+  // cleanup uring stuff
+  if(b->ring != NULL)
+  {
+    io_uring_unregister_eventfd(b->ring);
+    close(b->ring_eventfd);
+    io_uring_queue_exit(b->ring);
+    POOL_FREE(struct io_uring, b->ring);
+  }
   ponyint_messageq_destroy(&b->q);
   POOL_FREE(asio_backend_t, b);
   pony_unregister_thread();
