@@ -16,6 +16,8 @@
 #include <string.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <stdio.h>
+#include <liburing.h>
 
 #ifdef USE_VALGRIND
 #include <valgrind/helgrind.h>
@@ -27,6 +29,8 @@ struct asio_backend_t
 {
   int epfd;
   int wakeup;    /* eventfd to break epoll loop */
+  int ring_eventfd;
+  struct io_uring* ring;
   struct epoll_event events[MAX_EVENTS];
   PONY_ATOMIC(asio_event_t*) sighandlers[MAX_SIGNAL];
   PONY_ATOMIC(bool) terminate;
@@ -103,14 +107,16 @@ static void handle_queue(asio_backend_t* b)
 
 asio_backend_t* ponyint_asio_backend_init()
 {
+
   asio_backend_t* b = POOL_ALLOC(asio_backend_t);
   memset(b, 0, sizeof(asio_backend_t));
   ponyint_messageq_init(&b->q);
 
   b->epfd = epoll_create1(EPOLL_CLOEXEC);
   b->wakeup = eventfd(0, EFD_NONBLOCK);
+  b->ring_eventfd = eventfd(0, EFD_NONBLOCK);
 
-  if(b->epfd == 0 || b->wakeup == 0)
+  if(b->epfd == -1 || b->wakeup == -1)
   {
     POOL_FREE(asio_backend_t, b);
     return NULL;
@@ -121,6 +127,33 @@ asio_backend_t* ponyint_asio_backend_init()
   ep.events = EPOLLIN | EPOLLRDHUP | EPOLLET;
 
   epoll_ctl(b->epfd, EPOLL_CTL_ADD, b->wakeup, &ep);
+
+  // initialize uring if available
+  struct io_uring_probe* probe = io_uring_get_probe();
+  if(probe == NULL)
+  {
+    b->ring = NULL;
+    b->ring_eventfd = -1;
+
+    printf("io_uring not supported.");
+  }
+  else
+  {
+    // init io-uring and register eventfd
+    b->ring = POOL_ALLOC(struct io_uring);
+    io_uring_queue_init(MAX_EVENTS, b->ring, 0);
+    b->ring_eventfd = eventfd(0, EFD_NONBLOCK);
+    if(b->ring_eventfd == -1)
+    {
+      close(b->epfd);
+      io_uring_queue_exit(b->ring);
+      POOL_FREE(struct io_uring, b->ring);
+      POOL_FREE(asio_backend_t, b);
+      return NULL;
+    }
+
+    io_uring_register_eventfd(b->ring, b->ring_eventfd);
+  }
 
 #if !defined(USE_SCHEDULER_SCALING_PTHREADS)
   // Make sure we ignore signals related to scheduler sleeping/waking

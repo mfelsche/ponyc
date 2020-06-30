@@ -122,6 +122,38 @@ else()
     )
 endif (MSVC)
 
+if(${CMAKE_HOST_SYSTEM_NAME} MATCHES "Linux")
+    include(ExternalProject)
+    ExternalProject_Add(liburing_ext
+        URL https://github.com/axboe/liburing/archive/liburing-0.6.tar.gz
+        URL_HASH SHA256=cf718a0a60c3a54da7ec82a0ca639a8e55d683f931b9aba9da603b849db185de
+        CONFIGURE_COMMAND <SOURCE_DIR>/configure
+        BUILD_COMMAND env CC=${CMAKE_C_COMPILER} $(MAKE)
+        BUILD_IN_SOURCE 1
+        BUILD_BYPRODUCTS "<SOURCE_DIR>/src/liburing.a"
+        INSTALL_COMMAND ""
+    )
+    ExternalProject_Get_Property(liburing_ext source_dir)
+    set(URING_INCLUDE_DIR "${source_dir}/src/include")
+    set(URING_LIBRARY_DIR "${source_dir}/src")
+
+    add_library(liburing STATIC IMPORTED GLOBAL)
+    add_dependencies(liburing liburing_ext)
+    file(MAKE_DIRECTORY ${URING_INCLUDE_DIR})
+    set_target_properties(liburing PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES ${URING_INCLUDE_DIR}
+        IMPORTED_LINK_INTERFACE_LANGUAGES "C"
+        IMPORTED_LOCATION "${URING_LIBRARY_DIR}/liburing.a")
+    target_link_libraries(libponyrt liburing)
+    # copy liburing to the ponyc directory for use when linking pony programs
+    add_custom_command(TARGET libponyrt POST_BUILD
+        COMMAND $<$<CONFIG:Debug>:${CMAKE_COMMAND}> ARGS -E copy ${URING_LIBRARY_DIR}/liburing.a ${CMAKE_BINARY_DIR}/../debug${PONY_OUTPUT_SUFFIX}/liburing.a
+        COMMAND $<$<CONFIG:Release>:${CMAKE_COMMAND}> ARGS -E copy ${URING_LIBRARY_DIR}/liburing.a ${CMAKE_BINARY_DIR}/../release${PONY_OUTPUT_SUFFIX}/liburing.a
+        COMMAND $<$<CONFIG:RelWithDebInfo>:${CMAKE_COMMAND}> ARGS -E copy ${URING_LIBRARY_DIR}/liburing.a ${CMAKE_BINARY_DIR}/../relwithdebinfo${PONY_OUTPUT_SUFFIX}/liburing.a
+        COMMAND $<$<CONFIG:MinSizeRel>:${CMAKE_COMMAND}> ARGS -E copy ${URING_LIBRARY_DIR}/liburing.a ${CMAKE_BINARY_DIR}/../minsizerel${PONY_OUTPUT_SUFFIX}/liburing.a
+    )
+endif()
+
 if(PONY_RUNTIME_BITCODE)
     if (NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         message(FATAL_ERROR "You can only use runtime-bitcode with Clang.")

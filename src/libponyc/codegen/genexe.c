@@ -348,6 +348,7 @@ static bool link_exe(compile_t* c, ast_t* program,
   const char* fuseld = strlen(fuseldcmd) ? "-fuse-ld=" : "";
   const char* ldl = target_is_linux(c->opt->triple) ? "-ldl" : "";
   const char* atomic = target_is_linux(c->opt->triple) ? "-latomic" : "";
+  const char* uring = target_is_linux(c->opt->triple) ? "-luring" : "";
   const char* staticbin = c->opt->staticbin ? "-static" : "";
   const char* dtrace_args =
 #if defined(PLATFORM_IS_BSD) && defined(USE_DYNAMIC_TRACE)
@@ -372,7 +373,7 @@ static bool link_exe(compile_t* c, ast_t* program,
 
   size_t ld_len = 512 + strlen(file_exe) + strlen(file_o) + strlen(lib_args)
                   + strlen(arch) + strlen(mcx16_arg) + strlen(fuseld)
-                  + strlen(ldl) + strlen(atomic) + strlen(staticbin)
+                  + strlen(ldl) + strlen(atomic) + + strlen(uring) + strlen(staticbin)
                   + strlen(dtrace_args) + strlen(lexecinfo) + strlen(fuseldcmd)
                   + strlen(sanitizer_arg);
 
@@ -395,12 +396,12 @@ static bool link_exe(compile_t* c, ast_t* program,
 #endif
 #ifdef PLATFORM_IS_OPENBSD
     // On OpenBSD, the unwind symbols are contained within libc++abi.
-    "%s %s%s %s %s -lpthread %s %s %s -lm -lc++abi %s %s %s",
+    "%s %s%s %s %s -lpthread %s %s %s -lm -lc++abi %s %s %s %s",
 #else
-    "%s %s%s %s %s -lpthread %s %s %s -lm %s %s %s",
+    "%s %s%s %s %s -lpthread %s %s %s -lm %s %s %s %s",
 #endif
     linker, file_exe, arch, mcx16_arg, staticbin, fuseld, fuseldcmd, file_o,
-    lib_args, dtrace_args, ponyrt, ldl, lexecinfo, atomic, sanitizer_arg
+    lib_args, dtrace_args, ponyrt, ldl, lexecinfo, atomic, uring, sanitizer_arg
     );
 
   if(c->opt->verbosity >= VERBOSITY_TOOL_INFO)
